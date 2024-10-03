@@ -1,99 +1,61 @@
-from stable_baselines3.common.callbacks import CheckpointCallback
-from stable_baselines3 import PPO
-from config import indicators
-
-from gym_anytrading.envs import StocksEnv
-
 import numpy as np
 import pandas as pd
-import matplotlib
-import matplotlib.pyplot as plt
-import os.path
+import gym
+from gym import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
+from scipy.optimize import minimize
+import statsmodels.api as sm
+
+from personal_env import PersonalStockEnv
 
 
-def personal_process_data(df, window_size, stockTickers, frame_bound):
-    start = frame_bound[0] - window_size
-    end = frame_bound[1]
+def prepare_data(stock_data, ff_data):
+    # Prepare stock data
+    stock_data['returns'] = stock_data.groupby('stock_ticker')[
+        'prc'].pct_change()
+    stock_data = stock_data.pivot(index='date', columns='stock_ticker', values=[
+                                  'returns', 'market_cap'])
+    stock_data = stock_data.fillna(0)
 
-    prices = df.loc[:, 'prc'].to_numpy()[start:end]
-    signal_features = df.loc[:, indicators].to_numpy()[start:end]
+    # Align Fama-French data
+    ff_data = ff_data.reindex(stock_data.index)
+    ff_data = ff_data.fillna(method='ffill')
 
-    return prices, signal_features
-
-
-class PersonalStockEnv(StocksEnv):
-    def __init__(self, prices, signal_features, **kwargs):
-        self.prices = prices
-        self.signal_features = signal_features
-        return super(PersonalStockEnv, self).__init__(**kwargs)
-
-    def _process_data(self):
-        return self.prices, self.signal_features
+    return stock_data, ff_data
 
 
-def setup_data():
-    print('[logs] starting the algorithm')
-    data = pd.read_parquet('hackathon_sample_v2.parquet')
-    data = data.fillna(0)
-    stockTickers = data['stock_ticker'].unique().tolist()
-
-    return data, stockTickers
-
-
-def setup_model(data, stockTickers, device):
-    print('[logs] setting up the model')
-    checkpoint_callback = CheckpointCallback(
-        save_freq=1e4, save_path='./model_checkpoints/')
-    prices, signal_features = personal_process_data(
-        df=data, window_size=30, stockTickers=stockTickers, frame_bound=(30, len(data)))
-    env = PersonalStockEnv(prices, signal_features, df=data,
-                           window_size=30, frame_bound=(30, len(data)))
-    model = PPO("MlpPolicy", env, device=device,
-                tensorboard_log='./logs/saved_models/', verbose=1)
-
+def train_model(env, total_timesteps=100000):
+    model = PPO("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=total_timesteps)
     return model
 
 
-def check_ppo_portfolio_algorithm(data, stockTickers):
-    print('[logs] checking the trained model')
-    prices, signal_features = personal_process_data(
-        df=data[data['stock_ticker'] == 'AAPL'], window_size=30, stockTickers=stockTickers, frame_bound=(30, len(data[data['stock_ticker'] == 'AAPL'])))
-    env = PersonalStockEnv(prices, signal_features, df=data[data['stock_ticker'] == 'AAPL'], window_size=30, frame_bound=(
-        30, len(data[data['stock_ticker'] == 'AAPL'])))
-    model = PPO.load("trading_bot")
-
-    obs, _ = env.reset()
-
-    while True:
-        obs = obs[np.newaxis, ...]
-        action, _ = model.predict(obs)
-        obs, rewards, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
-        if done:
-            print("info", info)
-            break
-
-    plt.figure(figsize=(15, 6))
-    plt.cla()
-    env.render_all()
-    plt.show()
-
-
-def ppo_porfolio_algorithm(total_timesteps=10_000, device='mpu'):
-    bot_name = 'trading_bot.zip'
-
-    data, stockTickers = setup_data()
-
-    if not os.path.isfile(bot_name):
-        model = setup_model(data, stockTickers, device)
-
-        print('[logs] starting the training process')
-        model.learn(total_timesteps=total_timesteps)
-        model.save(bot_name)
-
-    check_ppo_portfolio_algorithm(data, stockTickers)
+def evaluate_model(model, env, episodes=10):
+    for episode in range(episodes):
+        obs = env.reset()
+        done = False
+        total_reward = 0
+        while not done:
+            action, _ = model.predict(obs)
+            obs, reward, done, info = env.step(action)
+            total_reward += reward
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
 
 
 if __name__ == "__main__":
-    # Use device="mps" for apple silicon macs
-    ppo_porfolio_algorithm(device="mps")
+    # Load and prepare data
+    stock_data = pd.read_parquet('hackathon_sample_v2.parquet')
+    ff_data = pd.read_csv('data/F-F_Research_Data_5_Factors.csv',
+                          index_col='Date', parse_dates=True)
+
+    stock_data, ff_data = prepare_data(stock_data, ff_data)
+
+    # Create and wrap the environment
+    env = DummyVecEnv([lambda: PersonalStockEnv(stock_data, ff_data)])
+
+    # Train the model
+    model = train_model(env)
+
+    # Evaluate the model
+    evaluate_model(model, env)

@@ -27,8 +27,10 @@ def test_black_litterman():
 
 
 def test_fama_french_5(ticker):
-    fama_french_5_algorithm(ticker)
+    fama_french_5_algorithm(ticker, True)
 
 
 if __name__ == "__main__":
-    test_fama_french_5("MSFT")
+    setup_data()
+    # test_black_litterman()
+    # test_fama_french_5("AAPL")

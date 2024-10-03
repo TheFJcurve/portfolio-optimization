@@ -42,7 +42,7 @@ def check_output(model, ticker):
     plt.show()
 
 
-def fama_french_5_algorithm(ticker):
+def fama_french_5_algorithm(ticker, check=False):
     ticker_monthly = setup_data_for_fama_french(ticker)
 
     # Step 2: Load the monthly five factors into a dataframe
@@ -72,4 +72,13 @@ def fama_french_5_algorithm(ticker):
     # Run the regression
     model = sm.OLS(y, X).fit()
 
-    check_output(model, ticker)
+    if check:
+        check_output(model, ticker)
+
+    return model.params.values
+
+
+if __name__ == "__main__":
+    val = fama_french_5_algorithm("AAPL")
+
+    print(val)

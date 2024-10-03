@@ -93,14 +93,23 @@ def setup_data_for_prediction():
 def setup_data_for_fama_french(ticker):
     df = pd.read_parquet('hackathon_sample_v2.parquet')
     stock_data = df[df['stock_ticker'] == ticker]
-    stock_data.loc[:, 'Adj Close'] = stock_data.loc[:, 'prc'].copy()
+
+    tmp = stock_data.loc[:, 'prc']
+    stock_data.loc[:, 'Adj Close'] = tmp.copy()
+
     stock_data.loc[:, 'date'] = stock_data.loc[:, 'date'].apply(
         lambda date: datetime.datetime.strptime(str(date), '%Y%m%d').strftime('%Y-%m'))
 
     ticker_monthly = stock_data[['date', 'Adj Close']]
-    ticker_monthly['date'] = pd.PeriodIndex(ticker_monthly['date'], freq="M")
+
+    tmp = pd.PeriodIndex(ticker_monthly['date'], freq="M")
+    ticker_monthly.loc[:, 'date'] = tmp
+
     ticker_monthly.set_index('date', inplace=True)
-    ticker_monthly['Return'] = ticker_monthly['Adj Close'].pct_change() * 100
+
+    tmp = ticker_monthly['Adj Close'].pct_change() * 100
+    ticker_monthly.loc[:, 'Return'] = tmp.copy()
+
     ticker_monthly = ticker_monthly.fillna(0)
 
     return ticker_monthly
